@@ -19,13 +19,13 @@ public class CodeGenNetInteropTests : CodeGenTestBase
         [StringSyntax("csharp")] string cSharpCode,
         [StringSyntax("cpp")] string cCode)
     {
-        var cSharpAssemblyPath = await CSharpCompilationUtil.CompileCSharpAssembly(
-            _output,
-            CSharpCompilationUtil.DefaultRuntime,
-            cSharpCode);
-        var (cesiumAssembly, assemblyContents) = GenerateAssembly(runtime: null, arch: architecture, sources: new[]{cCode}, referencePaths: new[] { cSharpAssemblyPath });
-        await VerifyTypes(cesiumAssembly, architecture);
-        await VerifyAssemblyRuns(assemblyContents.ToArray(), cSharpAssemblyPath);
+        using( var c = new CSharpCompilationUtil(_output, CSharpCompilationUtil.DefaultRuntime, cSharpCode) ) 
+        {
+            var cSharpAssemblyPath = await c.CompileCSharpAssembly();
+            var (cesiumAssembly, assemblyContents) = GenerateAssembly(runtime: null, arch: architecture, sources: new[]{cCode}, referencePaths: new[] { cSharpAssemblyPath });
+            await VerifyTypes(cesiumAssembly, architecture);
+            await VerifyAssemblyRuns(assemblyContents.ToArray(), cSharpAssemblyPath);
+        }
     }
 
     private async Task VerifyAssemblyRuns(byte[] assemblyContentToRun, string referencePath)

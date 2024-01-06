@@ -1,3 +1,4 @@
+using System;
 using System.Xml.Linq;
 using System.Xml.XPath;
 using Cesium.CodeGen;
@@ -6,7 +7,7 @@ using Xunit.Abstractions;
 namespace Cesium.Test.Framework;
 
 // TODO[#492]: Make a normal disposable class to delete the whole directory in the end of the test.
-public static class CSharpCompilationUtil
+public class CSharpCompilationUtil : IDisposable
 {
     public static readonly TargetRuntimeDescriptor DefaultRuntime = TargetRuntimeDescriptor.Net60;
     private const string _configuration = "Debug";
@@ -17,31 +18,46 @@ public static class CSharpCompilationUtil
     /// <summary>Semaphore that controls the amount of simultaneously running tests.</summary>
     private static readonly SemaphoreSlim _testSemaphore = new(Environment.ProcessorCount);
 
-    public static async Task<string> CompileCSharpAssembly(
-        ITestOutputHelper output,
-        TargetRuntimeDescriptor runtime,
-        string cSharpSource)
+    // member variables so each instance of the Compilation Util only executes one source
+    private string testDirectory;
+    private ITestOutputHelper output;
+    private TargetRuntimeDescriptor runtime;
+    private string cSharpSource;
+
+
+    public CSharpCompilationUtil(
+            ITestOutputHelper outputIn,
+            TargetRuntimeDescriptor runtimeIn,
+            string cSharpSourceIn) 
+    {
+        testDirectory = Path.GetTempFileName(); 
+        File.Delete(testDirectory);  
+        Directory.CreateDirectory(testDirectory);
+
+        output = outputIn;
+        runtime = runtimeIn;
+        cSharpSource = cSharpSourceIn;
+
+    }
+
+    public async Task<string> CompileCSharpAssembly()
     {
         if (runtime != DefaultRuntime) throw new Exception($"Runtime {runtime} not supported for test compilation.");
         await _testSemaphore.WaitAsync();
         try
         {
-            var directory = Path.GetTempFileName();
-            File.Delete(directory);
-            Directory.CreateDirectory(directory);
-
-            var projectDirectory = await CreateCSharpProject(output, directory);
+            var projectDirectory = await CreateCSharpProject(output, testDirectory);
             await File.WriteAllTextAsync(Path.Combine(projectDirectory, "Program.cs"), cSharpSource);
-            await CompileCSharpProject(output, directory, _projectName);
+            await CompileCSharpProject(output, testDirectory, _projectName);
             return Path.Combine(projectDirectory, "bin", _configuration, _targetRuntime, _projectName + ".dll");
         }
         finally
         {
             _testSemaphore.Release();
         }
-    }
+    } 
 
-    private static async Task<string> CreateCSharpProject(ITestOutputHelper output, string directory)
+    private async Task<string> CreateCSharpProject(ITestOutputHelper output, string directory)
     {
         await ExecUtil.RunToSuccess(
             output,
@@ -77,11 +93,15 @@ public static class CSharpCompilationUtil
         _cesiumRuntimeLibTargetRuntime,
         "Cesium.Runtime.dll");
 
-    private static Task CompileCSharpProject(ITestOutputHelper output, string directory, string projectName) =>
+    private Task CompileCSharpProject(ITestOutputHelper output, string directory, string projectName) =>
         ExecUtil.RunToSuccess(output, "dotnet", directory, new[]
         {
             "build",
             projectName,
             "--configuration", _configuration,
         });
+    
+    public void Dispose() {
+        Directory.Delete(testDirectory, true);
+    }
 }
